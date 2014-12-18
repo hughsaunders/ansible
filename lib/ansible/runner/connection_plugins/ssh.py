@@ -151,8 +151,16 @@ class Connection(object):
             try:
                 stdin.write(indata)
                 stdin.close()
-            except:
-                raise errors.AnsibleError('SSH Error: data could not be sent to the remote host. Make sure this host can be reached over ssh')
+            except Exception as e:
+                err_txt = ''
+                try:
+                    err_txt = os.read(p.stderr.fileno(), 9000)
+                except:
+                    pass
+                raise errors.AnsibleError('SSH Error: data could not be sent'
+                                          ' to the remote host. Make sure'
+                                          ' this host can be reached over ssh.'
+                                          ' Message: %s Exception: %s (_communicate)' % (err_txt, e))
         # Read stdout/stderr from process
         while True:
             rfd, wfd, efd = select.select(rpipes, [], rpipes, 1)
@@ -375,7 +383,15 @@ class Connection(object):
         if p.returncode != 0 and controlpersisterror:
             raise errors.AnsibleError('using -c ssh on certain older ssh versions may not support ControlPersist, set ANSIBLE_SSH_ARGS="" (or ssh_args in [ssh_connection] section of the config file) before running again')
         if p.returncode == 255 and (in_data or self.runner.module_name == 'raw'):
-            raise errors.AnsibleError('SSH Error: data could not be sent to the remote host. Make sure this host can be reached over ssh')
+            err_txt = ''
+            try:
+                err_txt = os.read(p.stderr.fileno(), 9000)
+            except:
+                pass
+            raise errors.AnsibleError('SSH Error: data could not be sent'
+                                      ' to the remote host. Make sure'
+                                      ' this host can be reached over ssh.'
+                                      ' Message: %s (exec_command)' % err_txt)
 
         return (p.returncode, '', no_prompt_out + stdout, no_prompt_err + stderr)
 
