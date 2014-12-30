@@ -30,7 +30,7 @@ import gettext
 import pty
 from hashlib import sha1
 import ansible.constants as C
-from ansible.callbacks import vvv
+from ansible.callbacks import vvv, vv, display
 from ansible import errors
 from ansible import utils
 
@@ -254,7 +254,42 @@ class Connection(object):
             vvv("EXEC previous known host file not found for %s" % host)
         return True
 
-    def exec_command(self, cmd, tmp_path, sudo_user=None, sudoable=False, executable='/bin/sh', in_data=None, su_user=None, su=False):
+    def exec_command(self, *args, **kwargs):
+        """ Wrapper around _exec_command to retry in the case of an ssh
+            failure
+
+            Will retry if:
+            * an exception is caught
+            * ssh returns 255
+
+            Will not retry if
+            * C.exec_retry is <2
+            * retry attempt limit reached
+            """
+        remaining_tries = C.ANSIBLE_SSH_EXEC_RETRY
+        cmd_summary = "%s %s" % (args[0], str(kwargs)[0:200] + '...')
+        for attempt in xrange(remaining_tries):
+            try:
+                return_tuple = self._exec_command(*args, **kwargs)
+            except Exception as e:
+                display("Caught exception(%s) during ssh exec(%s) retry:%s"
+                        % (e, cmd_summary, attempt), color='blue')
+                if attempt == remaining_tries -1:
+                    raise e
+                else:
+                    continue
+            # 0 = success
+            # 1-254 = remote command return code
+            # 255 = failure from the ssh command itself
+            if return_tuple[0] != 255:
+               break
+            else:
+               display('Retrying ssh exec %s. %s' %(cmd_summary, attempt), 
+                       color='blue')
+
+        return return_tuple
+
+    def _exec_command(self, cmd, tmp_path, sudo_user=None, sudoable=False, executable='/bin/sh', in_data=None, su_user=None, su=False):
         ''' run a command on the remote host '''
 
         ssh_cmd = self._password_cmd()
